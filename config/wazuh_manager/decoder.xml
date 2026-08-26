@@ -1,0 +1,10 @@
+<!--
+  Custom Decoders for Wazuh
+  Add custom log parsing rules here
+-->
+
+<decoder name="custom-auth">
+  <prematch>^CustomAuth: </prematch>
+  <regex>^CustomAuth: user=(\S+) ip=(\S+) status=(\S+)</regex>
+  <order>user, srcip, status</order>
+</decoder>
