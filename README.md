@@ -14,6 +14,16 @@
 
 ---
 
+## ⚠️ Безопасность
+
+> **Это шаблон/основа для развёртывания.** Перед использованием в продакшене:
+> 1. Заполните `.env` своими паролями (никогда не коммитьте `.env`)
+> 2. Сгенерируйте TLS-сертификаты
+> 3. Настройте firewall — откройте наружу только порт 5601 (Dashboard)
+> 4. Включите пароль для регистрации агентов (`use_password: yes` уже включено)
+
+---
+
 ## 📊 Ключевые метрики
 
 | Метрика | До | После |
@@ -52,38 +62,43 @@
 
 ```
 wazuh-siem-project/
-├── docker-compose.yml              # Описание кластера (Indexer + Manager + Dashboard)
-├── .env.example                    # Шаблон переменных окружения
-├── Makefile                        # Команды для быстрого управления
+├── docker-compose.yml              # Кластер: Indexer + Manager + Dashboard
+├── .env.example                    # Шаблон переменных окружения (без секретов)
+├── Makefile                        # Команды управления
 ├── README.md                       # Этот файл
+├── LICENSE                         # Public Domain (Unlicense)
 │
 ├── config/
 │   ├── wazuh_manager/
-│   │   ├── ossec.conf             # Конфигурация менеджера (логи, FIM, Active Response)
+│   │   ├── ossec.conf             # Конфиг менеджера (FIM, Active Response, auth)
 │   │   ├── local_rules.xml        # 8 правил корреляции (MITRE ATT&CK)
 │   │   └── decoder.xml            # Кастомные декодеры
 │   ├── wazuh_indexer/
-│   │   └── opensearch.yml         # Настройки OpenSearch (TLS, кластер)
+│   │   └── opensearch.yml         # OpenSearch (TLS, кластер)
 │   └── wazuh_dashboard/
-│       └── opensearch_dashboards.yml  # Настройки Dashboard
+│       └── opensearch_dashboards.yml  # Dashboard
 │
 ├── agents/
-│   ├── linux-ossec.conf           # Конфиг Linux-агента (auth, syslog, FIM, processes)
-│   └── windows-ossec.conf         # Конфиг Windows-агента (Security, PowerShell, Sysmon, Registry)
+│   ├── linux-ossec.conf           # Linux-агент (auth, syslog, FIM, processes)
+│   └── windows-ossec.conf         # Windows-агент (Security, PowerShell, Sysmon, Registry)
 │
 ├── scripts/
-│   ├── custom-telegram.sh         # Интеграция с Telegram (оповещения Level 7+)
+│   ├── custom-telegram.sh         # Telegram-интеграция (Level 7+)
 │   ├── install-linux-agent.sh     # Автоустановка Linux-агента
 │   └── install-windows-agent.ps1  # Автоустановка Windows-агента
 │
 ├── reports/
 │   └── incident-report-template.md # Аудиторский шаблон (PCI DSS, GDPR, ISO 27035)
 │
-└── docs/
-    ├── DEPLOYMENT.md              # Пошаговое руководство по развёртыванию
-    ├── RULES.md                   # Документация по правилам корреляции
-    ├── TELEGRAM.md                # Настройка Telegram-оповещений
-    └── SIMULATION.md              # Симуляция инцидентов для тестирования
+├── docs/
+│   ├── DEPLOYMENT.md              # Руководство по развёртыванию
+│   ├── RULES.md                   # Документация по правилам
+│   ├── TELEGRAM.md                # Настройка Telegram
+│   └── SIMULATION.md              # Симуляция инцидентов для тестирования
+│
+└── .github/
+    └── workflows/
+        └── ci.yml                 # CI: lint XML, validate compose
 ```
 
 ---
@@ -103,51 +118,44 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### 2. Клонирование и подготовка
+### 2. Подготовка
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/wazuh-siem-project.git
 cd wazuh-siem-project
 
-# Создайте .env из шаблона
+# Создайте .env из шаблона и заполните своими значениями!
 cp .env.example .env
-# Отредактируйте .env (пароли, токены)
+nano .env  # <-- ОБЯЗАТЕЛЬНО смените пароли!
 ```
 
 ### 3. Генерация TLS-сертификатов
 
 ```bash
-mkdir -p certs
-curl -sO https://packages.wazuh.com/4.8/wazuh-certs-tool.sh
-curl -sO https://packages.wazuh.com/4.8/config.yml
-# Отредактируйте config.yml под ваши хосты
+make certs
+# Отредактируйте config.yml под ваши хосты, затем:
 bash wazuh-certs-tool.sh -A
 mv ./wazuh-certificates/* ./certs/
 ```
 
-### 4. Запуск кластера
+### 4. Запуск
 
 ```bash
-docker compose up -d
-
-# Проверка
+make up
 make status
-# или
-docker compose ps
-docker logs -f wazuh.manager
 ```
 
-### 5. Доступ к Dashboard
+### 5. Dashboard
 
 - URL: `https://localhost:5601`
 - Логин: `admin`
-- Пароль: указан в `.env` / `docker-compose.yml`
+- Пароль: тот, что вы указали в `.env`
 
 ---
 
 ## 🖥️ Установка агентов
 
-### Linux (Ubuntu/Debian)
+### Linux
 
 ```bash
 cd scripts
@@ -156,9 +164,9 @@ sed -i "s/YOUR_MANAGER_IP/$WAZUH_MANAGER/g" install-linux-agent.sh
 bash install-linux-agent.sh
 ```
 
-**Ручная регистрация:**
+**Ручная регистрация с паролем:**
 ```bash
-/var/ossec/bin/agent-auth -m YOUR_MANAGER_IP -A linux-web-01
+/var/ossec/bin/agent-auth -m YOUR_MANAGER_IP -A linux-web-01 -P YOUR_AGENT_PASSWORD
 systemctl restart wazuh-agent
 ```
 
@@ -174,25 +182,15 @@ $WazuhManager = "YOUR_SERVER_IP"
 
 ---
 
-## 📡 Настройка Telegram-оповещений
+## 📡 Telegram
 
-1. Создайте бота через [@BotFather](https://t.me/BotFather) → получите `BOT_TOKEN`
+1. Создайте бота через [@BotFather](https://t.me/BotFather)
 2. Получите `CHAT_ID` через [@userinfobot](https://t.me/userinfobot)
-3. Отредактируйте `scripts/custom-telegram.sh`:
-   ```bash
-   BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-   CHAT_ID="-1001234567890"
-   ```
-4. Перезапустите менеджер:
-   ```bash
-   docker compose restart wazuh.manager
-   ```
+3. Заполните `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` в `.env`
+4. Отредактируйте `scripts/custom-telegram.sh` (значения подтянутся из `.env`)
+5. `make restart`
 
-**Проверка:**
-```bash
-# Симуляция брутфорса на Linux-агенте
-hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://TARGET_IP
-```
+Подробнее в [docs/TELEGRAM.md](docs/TELEGRAM.md).
 
 ---
 
@@ -200,14 +198,14 @@ hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://TARGET_IP
 
 | ID | Название | Уровень | Описание | MITRE |
 |---|---|---|---|---|
-| **100001** | SSH Brute Force | 10 | 6+ неудачных попыток за 120 сек | T1110 |
-| **100002** | Successful Brute Force | 12 | Успешный вход после серии неудач | T1110, T1078 |
-| **100003** | Suspicious PowerShell | 8 | Закодированные команды, IEX, DownloadString | T1059.001 |
-| **100004** | PowerShell Obfuscation | 10 | 3+ подозрительных PowerShell-сессии за 5 мин | T1059.001, T1562.001 |
-| **100005** | /etc/passwd Modified | 11 | Изменение файла пользователей в реальном времени | T1098, T1136 |
-| **100006** | Mass User Creation | 10 | 4+ новых пользователя за 5 минут | T1136, T1098 |
-| **100007** | /etc/shadow Modified | 11 | Изменение файла хешей паролей | T1003, T1003.008 |
-| **100008** | Sudo Anomaly | 8 | 5+ sudo-команд за минуту | T1548, T1548.003 |
+| **100001** | SSH Brute Force | 10 | 6+ неудач за 120 сек | T1110 |
+| **100002** | Successful Brute Force | 12 | Успешный вход после неудач | T1110, T1078 |
+| **100003** | Suspicious PowerShell | 8 | Закодированные команды | T1059.001 |
+| **100004** | PowerShell Obfuscation | 10 | 3+ подозрительных сессии | T1059.001, T1562.001 |
+| **100005** | /etc/passwd Modified | 11 | FIM realtime | T1098, T1136 |
+| **100006** | Mass User Creation | 10 | 4+ пользователя за 5 мин | T1136, T1098 |
+| **100007** | /etc/shadow Modified | 11 | FIM realtime | T1003, T1003.008 |
+| **100008** | Sudo Anomaly | 8 | 5+ sudo за минуту | T1548, T1548.003 |
 
 Подробнее в [docs/RULES.md](docs/RULES.md).
 
@@ -216,42 +214,39 @@ hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://TARGET_IP
 ## 📈 Мониторинг
 
 ```bash
-# Статус индексера
-curl -k -u admin:SecretPassword https://localhost:9200/_cluster/health?pretty
+# Статус кластера
+make status
 
-# Статус агентов
-docker exec -it wazuh.manager /var/ossec/bin/agent_control -lc
-
-# Логи алертов в реальном времени
+# Логи алертов
 docker exec -it wazuh.manager tail -f /var/ossec/logs/alerts/alerts.json | jq
+
+# API
+curl -k -u admin:$INDEXER_PASSWORD https://localhost:9200/_cluster/health?pretty
 ```
 
 ---
 
-## 📚 Документация
+## 🔒 Что исправлено (по сравнению с v1.0)
 
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Подробное руководство по развёртыванию
-- [RULES.md](docs/RULES.md) — Документация по правилам корреляции
-- [TELEGRAM.md](docs/TELEGRAM.md) — Настройка Telegram-интеграции
-- [SIMULATION.md](docs/SIMULATION.md) — Симуляция инцидентов для тестирования
-
----
-
-## 🔒 Безопасность
-
-- TLS между всеми компонентами
-- AES-шифрование агентов
-- Автоматическая блокировка IP (Active Response)
-- FIM в реальном времени для критических файлов
+- ❌ Хардкод паролей → ✅ Переменные окружения в `.env`
+- ❌ Открытые порты 9200, 55000, 1515 → ✅ Только 5601 наружу
+- ❌ Регистрация агентов без пароля → ✅ `use_password: yes`
+- ❌ `FILEBEAT_SSL_VERIFICATION_MODE=none` → ✅ `full`
+- ❌ Отсутствовал `linux-ossec.conf` → ✅ Создан
+- ❌ Нерабочие правила (двойной if_matched_sid, неправильные поля) → ✅ Исправлены
+- ❌ `same_source_ip` для локальных событий → ✅ `same_dstuser`
+- ❌ Telegram-скрипт без обработки ошибок → ✅ Retry, экранирование, валидация
+- ❌ Нет healthchecks / limits / restart → ✅ Добавлены
+- ❌ `SIMULATION.md` = копия `RULES.md` → ✅ Переписан полностью
+- ❌ Нет CI → ✅ GitHub Actions
 
 ---
 
 ## 📄 Лицензия
 
-MIT License — см. [LICENSE](LICENSE)
+Public Domain — [The Unlicense](LICENSE). Делайте что хотите.
 
 ---
 
 **Автор:** Security Engineer  
-**Дата:** 2026  
-**Версия:** 1.0
+**Версия:** 2.0 (post-audit)
